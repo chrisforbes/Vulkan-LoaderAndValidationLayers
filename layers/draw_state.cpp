@@ -4604,6 +4604,8 @@ VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateImage(VkDevice device, co
         IMAGE_NODE image_node;
         image_node.layout = pCreateInfo->initialLayout;
         image_node.format = pCreateInfo->format;
+        image_node.mipLevels = pCreateInfo->mipLevels;
+        image_node.arrayLayers = pCreateInfo->arrayLayers;
         loader_platform_thread_lock_mutex(&globalLock);
         dev_data->imageMap[*pImage] = unique_ptr<VkImageCreateInfo>(new VkImageCreateInfo(*pCreateInfo));
         ImageSubresourcePair subpair = {*pImage, false, VkImageSubresource()};
@@ -7595,6 +7597,8 @@ VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkGetSwapchainImagesKHR(
             image_node.layout = VK_IMAGE_LAYOUT_UNDEFINED;
             auto swapchain_node = dev_data->device_extensions.swapchainMap[swapchain];
             image_node.format = swapchain_node->createInfo.imageFormat;
+            image_node.mipLevels = 1;
+            image_node.arrayLayers = 1;
             swapchain_node->images.push_back(pSwapchainImages[i]);
             ImageSubresourcePair subpair = {pSwapchainImages[i], false,
                                             VkImageSubresource()};
