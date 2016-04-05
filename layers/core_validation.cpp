@@ -3116,6 +3116,17 @@ static VkBool32 verifyPipelineCreateState(layer_data *my_data, const VkDevice de
     if (!validate_and_capture_pipeline_shader_state(my_data, pPipeline)) {
         skipCall = VK_TRUE;
     }
+    // Each shader's stage must be unique
+    if (pPipeline->duplicate_shaders) {
+        for (uint32_t stage = VK_SHADER_STAGE_VERTEX_BIT; stage & VK_SHADER_STAGE_ALL_GRAPHICS; stage <<= 1) {
+            if (pPipeline->duplicate_shaders & stage) {
+                skipCall |= log_msg(my_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
+                                    __LINE__, DRAWSTATE_INVALID_PIPELINE_CREATE_STATE, "DS",
+                                    "Invalid Pipeline CreateInfo State: Multiple shaders provided for stage %s",
+                                    string_VkShaderStageFlagBits(VkShaderStageFlagBits(stage)));
+            }
+        }
+    }
     // VS is required
     if (!(pPipeline->active_shaders & VK_SHADER_STAGE_VERTEX_BIT)) {
         skipCall |=
