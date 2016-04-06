@@ -40,7 +40,6 @@
 #include <SPIRV/spirv.hpp>
 #include <algorithm>
 #include <assert.h>
-#include <bits/unordered_map.h>
 #include <iostream>
 #include <list>
 #include <map>
