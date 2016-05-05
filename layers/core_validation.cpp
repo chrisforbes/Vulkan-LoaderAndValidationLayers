@@ -1423,6 +1423,48 @@ static void collect_interface_by_descriptor_slot(debug_report_data *report_data,
     }
 }
 
+/* Walks two sorted sequences (typically maps) together. Pairs of entries are
+ * compared via the `compare` function, which should return negative if a < b,
+ * positive if a > b, zero otherwise.
+ * The function `unmatched_a` will be called for each entry in the first sequence
+ * which does not have a corresponding entry in the second.
+ * The function `unmatched_b` will be called for each entry in the second
+ * sequence which does not have a corresponding entry in the first.
+ * The function `matched` will be called for each pair of matched entries.
+ */
+template<typename AIterator, typename BIterator>
+void match_sorted(AIterator a_begin, AIterator a_end,
+                  BIterator b_begin, BIterator b_end,
+                  std::function<int (AIterator, BIterator)> compare,   // b - a
+                  std::function<void (AIterator)> unmatched_a,
+                  std::function<void (BIterator)> unmatched_b,
+                  std::function<void (AIterator, BIterator)> matched)
+{
+    auto it_a = a_begin;
+    auto it_b = b_begin;
+
+    while (it_a != a_end && it_b != b_end) {
+        auto cmp = compare(it_a, it_b);
+        if (cmp > 0) {
+            unmatched_a(it_a++);
+        }
+        else if (cmp < 0) {
+            unmatched_b(it_b++);
+        }
+        else {
+            matched(it_a++, it_b++);
+        }
+    }
+
+    while (it_a != a_end) {
+        unmatched_a(it_a++);
+    }
+
+    while (it_b != b_end) {
+        unmatched_b(it_b++);
+    }
+}
+
 static bool validate_interface_between_stages(debug_report_data *report_data, shader_module const *producer,
                                               spirv_inst_iter producer_entrypoint, shader_stage_attributes const *producer_stage,
                                               shader_module const *consumer, spirv_inst_iter consumer_entrypoint,
