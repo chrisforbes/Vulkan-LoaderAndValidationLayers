@@ -1653,13 +1653,16 @@ static bool validate_vi_consistency(debug_report_data *report_data, VkPipelineVe
 
 static bool validate_vi_against_vs_inputs(debug_report_data *report_data, VkPipelineVertexInputStateCreateInfo const *vi,
                                           shader_module const *vs, spirv_inst_iter entrypoint) {
-    std::map<location_t, interface_var> inputs;
+    typedef std::map<uint32_t, VkVertexInputAttributeDescription const *> attrib_map;
+    typedef std::map<location_t, interface_var> input_map;
+
+    input_map inputs;
     bool pass = true;
 
     collect_interface_by_location(vs, entrypoint, spv::StorageClassInput, inputs, false);
 
     /* Build index by location */
-    std::map<uint32_t, VkVertexInputAttributeDescription const *> attribs;
+    attrib_map attribs;
     if (vi) {
         for (unsigned i = 0; i < vi->vertexAttributeDescriptionCount; i++) {
             auto num_locations = get_locations_consumed_by_format(vi->pVertexAttributeDescriptions[i].format);
@@ -1669,48 +1672,44 @@ static bool validate_vi_against_vs_inputs(debug_report_data *report_data, VkPipe
         }
     }
 
-    auto it_a = attribs.begin();
-    auto it_b = inputs.begin();
-
-    while ((attribs.size() > 0 && it_a != attribs.end()) || (inputs.size() > 0 && it_b != inputs.end())) {
-        bool a_at_end = attribs.size() == 0 || it_a == attribs.end();
-        bool b_at_end = inputs.size() == 0 || it_b == inputs.end();
-        auto a_first = a_at_end ? 0 : it_a->first;
-        auto b_first = b_at_end ? 0 : it_b->first.first;
-        if (!a_at_end && (b_at_end || a_first < b_first)) {
-            if (log_msg(report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
-                        __LINE__, SHADER_CHECKER_OUTPUT_NOT_CONSUMED, "SC",
-                        "Vertex attribute at location %d not consumed by VS", a_first)) {
-                pass = false;
-            }
-            it_a++;
-        } else if (!b_at_end && (a_at_end || b_first < a_first)) {
-            if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT, /*dev*/ 0,
-                        __LINE__, SHADER_CHECKER_INPUT_NOT_PRODUCED, "SC", "VS consumes input at location %d but not provided",
-                        b_first)) {
-                pass = false;
-            }
-            it_b++;
-        } else {
-            unsigned attrib_type = get_format_type(it_a->second->format);
-            unsigned input_type = get_fundamental_type(vs, it_b->second.type_id);
-
-            /* type checking */
-            if (attrib_type != FORMAT_TYPE_UNDEFINED && input_type != FORMAT_TYPE_UNDEFINED && attrib_type != input_type) {
-                if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
-                            __LINE__, SHADER_CHECKER_INTERFACE_TYPE_MISMATCH, "SC",
-                            "Attribute type of `%s` at location %d does not match VS input type of `%s`",
-                            string_VkFormat(it_a->second->format), a_first,
-                            describe_type(vs, it_b->second.type_id).c_str())) {
+    std::function<int(attrib_map::iterator, input_map::iterator)> compare =
+            [](attrib_map::iterator a, input_map::iterator b) { return b->first.first - a->first; };
+    std::function<void(attrib_map::iterator)> unmatched_a =
+            [=,&pass](attrib_map::iterator a) {
+                if (log_msg(report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
+                            __LINE__, SHADER_CHECKER_OUTPUT_NOT_CONSUMED, "SC",
+                            "Vertex attribute at location %d not consumed by VS", a->first)) {
                     pass = false;
                 }
-            }
+            };
+    std::function<void(input_map::iterator)> unmatched_b =
+            [=,&pass](input_map::iterator b) {
+                if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT, /*dev*/ 0,
+                            __LINE__, SHADER_CHECKER_INPUT_NOT_PRODUCED, "SC", "VS consumes input at location %d but not provided",
+                            b->first.first)) {
+                    pass = false;
+                }
+            };
+    std::function<void(attrib_map::iterator, input_map::iterator)> matched =
+            [=,&pass](attrib_map::iterator a,
+                      input_map::iterator b) {
+                auto attrib_type = get_format_type(a->second->format);
+                auto input_type = get_fundamental_type(vs, b->second.type_id);
 
-            /* OK! */
-            it_a++;
-            it_b++;
-        }
-    }
+                /* type checking */
+                if (attrib_type != FORMAT_TYPE_UNDEFINED && input_type != FORMAT_TYPE_UNDEFINED && attrib_type != input_type) {
+                    if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
+                                __LINE__, SHADER_CHECKER_INTERFACE_TYPE_MISMATCH, "SC",
+                                "Attribute type of `%s` at location %d does not match VS input type of `%s`",
+                                string_VkFormat(a->second->format), a->first,
+                                describe_type(vs, b->second.type_id).c_str())) {
+                        pass = false;
+                    }
+                }
+            };
+
+    match_sorted(attribs.begin(), attribs.end(), inputs.begin(), inputs.end(),
+                 compare, unmatched_a, unmatched_b, matched);
 
     return pass;
 }
