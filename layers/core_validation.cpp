@@ -1469,71 +1469,71 @@ static bool validate_interface_between_stages(debug_report_data *report_data, sh
                                               spirv_inst_iter producer_entrypoint, shader_stage_attributes const *producer_stage,
                                               shader_module const *consumer, spirv_inst_iter consumer_entrypoint,
                                               shader_stage_attributes const *consumer_stage) {
-    std::map<location_t, interface_var> outputs;
-    std::map<location_t, interface_var> inputs;
+    typedef std::map<location_t, interface_var> var_map;
+    var_map outputs;
+    var_map inputs;
 
     bool pass = true;
 
     collect_interface_by_location(producer, producer_entrypoint, spv::StorageClassOutput, outputs, producer_stage->arrayed_output);
     collect_interface_by_location(consumer, consumer_entrypoint, spv::StorageClassInput, inputs, consumer_stage->arrayed_input);
 
-    auto a_it = outputs.begin();
-    auto b_it = inputs.begin();
-
-    /* maps sorted by key (location); walk them together to find mismatches */
-    while ((outputs.size() > 0 && a_it != outputs.end()) || (inputs.size() && b_it != inputs.end())) {
-        bool a_at_end = outputs.size() == 0 || a_it == outputs.end();
-        bool b_at_end = inputs.size() == 0 || b_it == inputs.end();
-        auto a_first = a_at_end ? std::make_pair(0u, 0u) : a_it->first;
-        auto b_first = b_at_end ? std::make_pair(0u, 0u) : b_it->first;
-
-        if (b_at_end || ((!a_at_end) && (a_first < b_first))) {
+    std::function<int(var_map::iterator, var_map::iterator)> compare =
+        [](var_map::iterator a, var_map::iterator b) {
+          if (a->first < b->first) return -1;
+          if (b->first < a->first) return 1;
+          return 0;
+        };
+    std::function<void(var_map::iterator)> unmatched_a =
+        [=,&pass](var_map::iterator a) {
             if (log_msg(report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
                         __LINE__, SHADER_CHECKER_OUTPUT_NOT_CONSUMED, "SC",
-                        "%s writes to output location %u.%u which is not consumed by %s", producer_stage->name, a_first.first,
-                        a_first.second, consumer_stage->name)) {
+                        "%s writes to output location %u.%u which is not consumed by %s", producer_stage->name, a->first.first,
+                        a->first.second, consumer_stage->name)) {
                 pass = false;
             }
-            a_it++;
-        } else if (a_at_end || a_first > b_first) {
+        };
+    std::function<void(var_map::iterator)> unmatched_b =
+        [=,&pass](var_map::iterator b) {
             if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
                         __LINE__, SHADER_CHECKER_INPUT_NOT_PRODUCED, "SC",
-                        "%s consumes input location %u.%u which is not written by %s", consumer_stage->name, b_first.first, b_first.second,
+                        "%s consumes input location %u.%u which is not written by %s", consumer_stage->name, b->first.first, b->first.second,
                         producer_stage->name)) {
                 pass = false;
             }
-            b_it++;
-        } else {
+        };
+    std::function<void(var_map::iterator, var_map::iterator)> matched =
+        [=, &pass](var_map::iterator a, var_map::iterator b) {
             // subtleties of arrayed interfaces:
             // - if is_patch, then the member is not arrayed, even though the interface may be.
             // - if is_block_member, then the extra array level of an arrayed interface is not
             //   expressed in the member type -- it's expressed in the block type.
-            if (!types_match(producer, consumer, a_it->second.type_id, b_it->second.type_id,
-                             producer_stage->arrayed_output && !a_it->second.is_patch && !a_it->second.is_block_member,
-                             consumer_stage->arrayed_input && !b_it->second.is_patch && !b_it->second.is_block_member,
+            if (!types_match(producer, consumer, a->second.type_id, b->second.type_id,
+                             producer_stage->arrayed_output && !a->second.is_patch && !a->second.is_block_member,
+                             consumer_stage->arrayed_input && !b->second.is_patch && !b->second.is_block_member,
                              true)) {
                 if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
                             __LINE__, SHADER_CHECKER_INTERFACE_TYPE_MISMATCH, "SC", "Type mismatch on location %u.%u: '%s' vs '%s'",
-                            a_first.first, a_first.second,
-                            describe_type(producer, a_it->second.type_id).c_str(),
-                            describe_type(consumer, b_it->second.type_id).c_str())) {
+                            a->first.first, a->first.second,
+                            describe_type(producer, a->second.type_id).c_str(),
+                            describe_type(consumer, b->second.type_id).c_str())) {
                     pass = false;
                 }
             }
-            if (a_it->second.is_patch != b_it->second.is_patch) {
+            if (a->second.is_patch != b->second.is_patch) {
                 if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT, /*dev*/ 0,
                             __LINE__, SHADER_CHECKER_INTERFACE_TYPE_MISMATCH, "SC",
                             "Decoration mismatch on location %u.%u: is per-%s in %s stage but "
-                            "per-%s in %s stage", a_first.first, a_first.second,
-                            a_it->second.is_patch ? "patch" : "vertex", producer_stage->name,
-                            b_it->second.is_patch ? "patch" : "vertex", consumer_stage->name)) {
+                            "per-%s in %s stage", a->first.first, a->first.second,
+                            a->second.is_patch ? "patch" : "vertex", producer_stage->name,
+                            b->second.is_patch ? "patch" : "vertex", consumer_stage->name)) {
                     pass = false;
                 }
             }
-            a_it++;
-            b_it++;
-        }
-    }
+        };
+
+    match_sorted(outputs.begin(), outputs.end(), inputs.begin(), inputs.end(),
+                 compare, unmatched_a, unmatched_b, matched);
 
     return pass;
 }
