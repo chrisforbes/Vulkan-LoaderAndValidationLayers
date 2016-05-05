@@ -1716,8 +1716,15 @@ static bool validate_vi_against_vs_inputs(debug_report_data *report_data, VkPipe
 
 static bool validate_fs_outputs_against_render_pass(debug_report_data *report_data, shader_module const *fs,
                                                     spirv_inst_iter entrypoint, RENDER_PASS_NODE const *rp, uint32_t subpass) {
-    std::map<location_t, interface_var> outputs;
-    std::map<uint32_t, VkFormat> color_attachments;
+    const std::vector<VkFormat> &color_formats = rp->subpassColorFormats[subpass];
+
+    typedef std::map<location_t, interface_var> output_map;
+    typedef std::map<uint32_t, VkFormat> attachment_map;
+
+    output_map outputs;
+    collect_interface_by_location(fs, entrypoint, spv::StorageClassOutput, outputs, false);
+
+    attachment_map color_attachments;
     for (auto i = 0u; i < rp->subpassColorFormats[subpass].size(); i++) {
         if (rp->subpassColorFormats[subpass][i] != VK_FORMAT_UNDEFINED) {
             color_attachments[i] = rp->subpassColorFormats[subpass][i];
@@ -1726,52 +1733,42 @@ static bool validate_fs_outputs_against_render_pass(debug_report_data *report_da
 
     bool pass = true;
 
-    /* TODO: dual source blend index (spv::DecIndex, zero if not provided) */
-
-    collect_interface_by_location(fs, entrypoint, spv::StorageClassOutput, outputs, false);
-
-    auto it_a = outputs.begin();
-    auto it_b = color_attachments.begin();
-
-    /* Walk attachment list and outputs together */
-
-    while ((outputs.size() > 0 && it_a != outputs.end()) || (color_attachments.size() > 0 && it_b != color_attachments.end())) {
-        bool a_at_end = outputs.size() == 0 || it_a == outputs.end();
-        bool b_at_end = color_attachments.size() == 0 || it_b == color_attachments.end();
-
-        if (!a_at_end && (b_at_end || it_a->first.first < it_b->first)) {
-            if (log_msg(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
-                        __LINE__, SHADER_CHECKER_OUTPUT_NOT_CONSUMED, "SC",
-                        "FS writes to output location %d with no matching attachment", it_a->first.first)) {
-                pass = false;
-            }
-            it_a++;
-        } else if (!b_at_end && (a_at_end || it_a->first.first > it_b->first)) {
-            if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
-                        __LINE__, SHADER_CHECKER_INPUT_NOT_PRODUCED, "SC", "Attachment %d not written by FS", it_b->first)) {
-                pass = false;
-            }
-            it_b++;
-        } else {
-            unsigned output_type = get_fundamental_type(fs, it_a->second.type_id);
-            unsigned att_type = get_format_type(it_b->second);
-
-            /* type checking */
-            if (att_type != FORMAT_TYPE_UNDEFINED && output_type != FORMAT_TYPE_UNDEFINED && att_type != output_type) {
-                if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
-                            __LINE__, SHADER_CHECKER_INTERFACE_TYPE_MISMATCH, "SC",
-                            "Attachment %d of type `%s` does not match FS output type of `%s`", it_b->first,
-                            string_VkFormat(it_b->second),
-                            describe_type(fs, it_a->second.type_id).c_str())) {
+    std::function<int(output_map::iterator, attachment_map::iterator)> compare =
+            [](output_map::iterator a, attachment_map::iterator b) { return b->first - a->first.first; };
+    std::function<void(output_map::iterator)> unmatched_a =
+            [=,&pass](output_map::iterator a) {
+                if (log_msg(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
+                            __LINE__, SHADER_CHECKER_OUTPUT_NOT_CONSUMED, "SC",
+                            "FS writes to output location %d with no matching attachment", a->first.first)) {
                     pass = false;
                 }
-            }
+            };
+    std::function<void(attachment_map::iterator)> unmatched_b =
+            [=,&pass](attachment_map::iterator b) {
+                if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
+                            __LINE__, SHADER_CHECKER_INPUT_NOT_PRODUCED, "SC", "Attachment %d not written by FS", b->first)) {
+                    pass = false;
+                }
+            };
+    std::function<void(output_map::iterator, attachment_map::iterator)> matched =
+            [=,&pass](output_map::iterator a, attachment_map::iterator b) {
+                unsigned output_type = get_fundamental_type(fs, a->second.type_id);
+                unsigned att_type = get_format_type(b->second);
 
-            /* OK! */
-            it_a++;
-            it_b++;
-        }
-    }
+                /* type checking */
+                if (att_type != FORMAT_TYPE_UNDEFINED && output_type != FORMAT_TYPE_UNDEFINED && att_type != output_type) {
+                    if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
+                                __LINE__, SHADER_CHECKER_INTERFACE_TYPE_MISMATCH, "SC",
+                                "Attachment %d of type `%s` does not match FS output type of `%s`", b->first,
+                                string_VkFormat(b->second),
+                                describe_type(fs, a->second.type_id).c_str())) {
+                        pass = false;
+                    }
+                }
+            };
+
+    match_sorted(outputs.begin(), outputs.end(), color_attachments.begin(), color_attachments.end(),
+                 compare, unmatched_a, unmatched_b, matched);
 
     return pass;
 }
