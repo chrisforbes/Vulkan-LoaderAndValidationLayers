@@ -1484,7 +1484,7 @@ static bool validate_interface_between_stages(debug_report_data *report_data, sh
           if (b->first < a->first) return 1;
           return 0;
         };
-    std::function<void(var_map::iterator)> unmatched_a =
+    std::function<void(var_map::iterator)> unmatched_output =
         [=,&pass](var_map::iterator a) {
             if (log_msg(report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
                         __LINE__, SHADER_CHECKER_OUTPUT_NOT_CONSUMED, "SC",
@@ -1493,7 +1493,7 @@ static bool validate_interface_between_stages(debug_report_data *report_data, sh
                 pass = false;
             }
         };
-    std::function<void(var_map::iterator)> unmatched_b =
+    std::function<void(var_map::iterator)> unmatched_input =
         [=,&pass](var_map::iterator b) {
             if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
                         __LINE__, SHADER_CHECKER_INPUT_NOT_PRODUCED, "SC",
@@ -1533,7 +1533,7 @@ static bool validate_interface_between_stages(debug_report_data *report_data, sh
         };
 
     match_sorted(outputs.begin(), outputs.end(), inputs.begin(), inputs.end(),
-                 compare, unmatched_a, unmatched_b, matched);
+                 compare, unmatched_output, unmatched_input, matched);
 
     return pass;
 }
@@ -1674,7 +1674,7 @@ static bool validate_vi_against_vs_inputs(debug_report_data *report_data, VkPipe
 
     std::function<int(attrib_map::iterator, input_map::iterator)> compare =
             [](attrib_map::iterator a, input_map::iterator b) { return b->first.first - a->first; };
-    std::function<void(attrib_map::iterator)> unmatched_a =
+    std::function<void(attrib_map::iterator)> unmatched_attrib =
             [=,&pass](attrib_map::iterator a) {
                 if (log_msg(report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
                             __LINE__, SHADER_CHECKER_OUTPUT_NOT_CONSUMED, "SC",
@@ -1682,7 +1682,7 @@ static bool validate_vi_against_vs_inputs(debug_report_data *report_data, VkPipe
                     pass = false;
                 }
             };
-    std::function<void(input_map::iterator)> unmatched_b =
+    std::function<void(input_map::iterator)> unmatched_input =
             [=,&pass](input_map::iterator b) {
                 if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT, /*dev*/ 0,
                             __LINE__, SHADER_CHECKER_INPUT_NOT_PRODUCED, "SC", "VS consumes input at location %d but not provided",
@@ -1709,7 +1709,7 @@ static bool validate_vi_against_vs_inputs(debug_report_data *report_data, VkPipe
             };
 
     match_sorted(attribs.begin(), attribs.end(), inputs.begin(), inputs.end(),
-                 compare, unmatched_a, unmatched_b, matched);
+                 compare, unmatched_attrib, unmatched_input, matched);
 
     return pass;
 }
@@ -1735,7 +1735,7 @@ static bool validate_fs_outputs_against_render_pass(debug_report_data *report_da
 
     std::function<int(output_map::iterator, attachment_map::iterator)> compare =
             [](output_map::iterator a, attachment_map::iterator b) { return b->first - a->first.first; };
-    std::function<void(output_map::iterator)> unmatched_a =
+    std::function<void(output_map::iterator)> unmatched_output =
             [=,&pass](output_map::iterator a) {
                 if (log_msg(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
                             __LINE__, SHADER_CHECKER_OUTPUT_NOT_CONSUMED, "SC",
@@ -1743,7 +1743,7 @@ static bool validate_fs_outputs_against_render_pass(debug_report_data *report_da
                     pass = false;
                 }
             };
-    std::function<void(attachment_map::iterator)> unmatched_b =
+    std::function<void(attachment_map::iterator)> unmatched_attachment =
             [=,&pass](attachment_map::iterator b) {
                 if (log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0,
                             __LINE__, SHADER_CHECKER_INPUT_NOT_PRODUCED, "SC", "Attachment %d not written by FS", b->first)) {
@@ -1768,7 +1768,7 @@ static bool validate_fs_outputs_against_render_pass(debug_report_data *report_da
             };
 
     match_sorted(outputs.begin(), outputs.end(), color_attachments.begin(), color_attachments.end(),
-                 compare, unmatched_a, unmatched_b, matched);
+                 compare, unmatched_output, unmatched_attachment, matched);
 
     return pass;
 }
