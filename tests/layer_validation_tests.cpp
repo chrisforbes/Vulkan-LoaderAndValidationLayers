@@ -4770,7 +4770,7 @@ TEST_F(VkLayerTest, FramebufferCreateErrors) {
     fb_info.width = 100;
     fb_info.layers = 1;
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
-                                         " has non-identy swizzle. All "
+                                         " has non-identity swizzle. All "
                                          "framebuffer attachments must have "
                                          "been created with the identity "
                                          "swizzle. ");

@@ -8683,7 +8683,7 @@ static bool ValidateFramebufferCreateInfo(layer_data *dev_data, const VkFramebuf
                     skip_call |= log_msg(
                         dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkDebugReportObjectTypeEXT(0), 0, __LINE__,
                         DRAWSTATE_INVALID_FRAMEBUFFER_CREATE_INFO, "DS",
-                        "vkCreateFramebuffer(): VkFramebufferCreateInfo attachment #%u has non-identy swizzle. All framebuffer "
+                        "vkCreateFramebuffer(): VkFramebufferCreateInfo attachment #%u has non-identity swizzle. All framebuffer "
                         "attachments must have been created with the identity swizzle. Here are the actual swizzle values:\n"
                         "r swizzle = %s\n"
                         "g swizzle = %s\n"
